@@ -1,13 +1,12 @@
 // ==================================================================
-// MÓDULO PRINCIPAL - DENTISTA INTELIGENTE (VERSÃO FINAL - 100% COMPLETO)
+// MÓDULO PRINCIPAL - DENTISTA INTELIGENTE (PARTE 1/2)
 // ==================================================================
 (function() {
     
-    // 1. CONFIGURAÇÕES
+    // 1. CONFIGURAÇÕES E ESTADO
     var config = window.AppConfig;
     var appId = config ? config.APP_ID : 'dentista-inteligente-app';
     
-    // ESTADO
     var db, auth;
     var currentUser = null;
     var currentView = 'dashboard';
@@ -15,7 +14,7 @@
     var selectedFile = null; 
     var currentChatRef = null;
     
-    // CACHES
+    // CACHES DE DADOS
     var allPatients = []; 
     var receivables = []; 
     var stockItems = []; 
@@ -160,6 +159,8 @@
         e.preventDefault();
         var em = document.getElementById('auth-email').value;
         var pw = document.getElementById('auth-password').value;
+        var btn = document.getElementById('auth-submit-btn');
+        btn.disabled = true; btn.textContent = '...';
         try {
             if (isLoginMode) await auth.signInWithEmailAndPassword(em, pw);
             else {
@@ -168,13 +169,12 @@
                     email: em, role: 'dentist', registeredAt: new Date().toISOString()
                 });
             }
-        } catch (error) { alert("Erro: " + error.message); }
+        } catch (error) { 
+            alert("Erro: " + error.message); 
+            btn.disabled = false; btn.textContent = isLoginMode ? 'Entrar' : 'Cadastrar';
+        }
     }
 
-    // ==================================================================
-    // 4. NAVEGAÇÃO
-    // ==================================================================
-    
     function navigateTo(view) {
         if(!currentUser) return;
         currentView = view;
@@ -203,12 +203,10 @@
             menu.appendChild(btn);
         });
     }
-
     // ==================================================================
-    // 5. TELAS
+    // 5. TELAS (PARTE 2)
     // ==================================================================
 
-    // --- DASHBOARD ---
     function renderDashboard(container) {
         container.innerHTML = `
             <div class="p-8 bg-white shadow-2xl rounded-2xl border border-indigo-100">
@@ -216,8 +214,8 @@
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                     <div class="p-4 bg-indigo-100 rounded-lg"><p class="text-gray-600 text-sm uppercase font-bold">Pacientes</p><h3 class="text-2xl font-bold text-indigo-800" id="dash-pat">0</h3></div>
                     <div class="p-4 bg-green-100 rounded-lg"><p class="text-gray-600 text-sm uppercase font-bold">Estoque</p><h3 class="text-3xl font-bold text-green-800" id="dash-stk">0</h3></div>
-                    <div class="p-4 bg-yellow-100 rounded-lg"><p class="text-gray-600 text-sm uppercase font-bold">Recebido</p><h3 class="text-2xl font-bold text-yellow-800" id="dash-rec">R$ 0,00</h3></div>
-                    <div class="p-4 bg-red-100 rounded-lg"><p class="text-gray-600 text-sm uppercase font-bold">Pago</p><h3 class="text-2xl font-bold text-red-800" id="dash-exp">R$ 0,00</h3></div>
+                    <div class="p-4 bg-yellow-100 rounded-lg"><p class="text-gray-600 text-sm uppercase font-bold">Faturamento (Recebido)</p><h3 class="text-2xl font-bold text-yellow-800" id="dash-rec">R$ 0,00</h3></div>
+                    <div class="p-4 bg-red-100 rounded-lg"><p class="text-gray-600 text-sm uppercase font-bold">Despesas (Pagas)</p><h3 class="text-2xl font-bold text-red-800" id="dash-exp">R$ 0,00</h3></div>
                 </div>
                 <div class="border p-4 rounded-xl bg-gray-50">
                     <h3 class="font-bold text-indigo-800 mb-2">Instruções da IA (Brain)</h3>
@@ -228,14 +226,13 @@
             </div>`;
         updateKPIs();
         var brainRef = db.ref(getAdminPath(currentUser.uid, 'aiConfig/directives'));
-        brainRef.once('value', function(s) { 
-            if(s.exists()) document.getElementById('brain-input').value = s.val().promptDirectives; 
-            else document.getElementById('brain-input').value = "Você é um dentista sênior. Seja técnico, objetivo e foque na segurança clínica.";
-        });
-        document.getElementById('save-brain-btn').onclick = function() { brainRef.update({ promptDirectives: document.getElementById('brain-input').value }); alert("IA Atualizada!"); };
+        brainRef.once('value', function(s) { if(s.exists()) document.getElementById('brain-input').value = s.val().promptDirectives; });
+        document.getElementById('save-brain-btn').onclick = function() {
+            brainRef.update({ promptDirectives: document.getElementById('brain-input').value });
+            alert("IA Atualizada!");
+        };
     }
 
-    // --- PACIENTES ---
     function renderPatientManager(container) {
         container.innerHTML = `
             <div class="p-8 bg-white shadow-lg rounded-2xl">
@@ -313,7 +310,7 @@
 
     function deletePatient(id) { if(confirm("Excluir?")) db.ref(getAdminPath(currentUser.uid, 'patients') + '/' + id).remove(); }
 
-    // --- PRONTUÁRIO (IA PRIVADA + CHAT) ---
+    // --- PRONTUÁRIO ---
     function openJournal(id) {
         if(currentChatRef) currentChatRef.off();
         var p = allPatients.find(function(x){ return x.id === id; });
@@ -377,8 +374,7 @@
                 for(var key in data) {
                     var item = data[key];
                     var matsHTML = '';
-                    // Busca materiais usados (Referencia o caminho correto: receivables/id/materials)
-                    var matSnap = await db.ref(getFinancePath(currentUser.uid, 'receivable') + '/' + key + '/materials').once('value');
+                    var matSnap = await db.ref(getReceivableMaterialsPath(key)).once('value');
                     if(matSnap.exists()) {
                         var arr = [];
                         matSnap.forEach(function(m) { arr.push(`${m.val().quantityUsed} ${m.val().unit} ${m.val().name}`); });
@@ -408,42 +404,22 @@
         if(btn) btn.disabled = false;
     };
 
-    // IA PRIVADA: COLOCA A RESPOSTA NO INPUT PARA O DENTISTA EDITAR
     window.askAI = async function(pid) {
         var p = allPatients.find(x => x.id === pid);
         var btn = document.querySelector('button[title="Consultar IA (Privado)"]');
         var icon = btn ? btn.innerHTML : '🤖';
-        
         if(btn) { btn.innerHTML = '<i class="bx bx-loader-alt bx-spin"></i>'; btn.disabled = true; }
-
         try {
             var snaps = await db.ref(getJournalPath(pid)).limitToLast(5).once('value');
             var hist = "";
             snaps.forEach(s => hist += `${s.val().author}: ${s.val().text}\n`);
-
-            var prompt = `
-                ATUE COMO: Dentista Sênior Especialista.
-                PACIENTE: ${p.name}. TRATAMENTO: ${p.treatmentType}.
-                HISTÓRICO RECENTE: ${hist}
-                
-                TAREFA: Analise o caso e sugira a próxima conduta técnica ou resposta ao paciente. 
-                Seja direto, técnico e seguro.
-            `;
-            
+            var prompt = `ATUE COMO: Dentista Sênior Especialista. PACIENTE: ${p.name}. HISTÓRICO RECENTE: ${hist}\nTAREFA: Analise o caso e sugira a próxima conduta técnica.`;
             var resp = await window.callGeminiAPI(prompt, "Análise Clínica");
             
-            // AQUI ESTÁ A MÁGICA: NÃO ENVIA, APENAS PREENCHE O CAMPO
             var input = document.getElementById('chat-msg');
-            if(input) {
-                input.value = "🤖 " + resp;
-                input.focus();
-            }
-
-        } catch (e) {
-            alert("Erro IA: " + e.message);
-        } finally {
-            if(btn) { btn.innerHTML = icon; btn.disabled = false; }
-        }
+            if(input) { input.value = "🤖 " + resp; input.focus(); }
+        } catch (e) { alert("Erro IA: " + e.message); } 
+        finally { if(btn) { btn.innerHTML = icon; btn.disabled = false; } }
     };
 
     // --- FINANCEIRO ---
@@ -462,6 +438,7 @@
         window.renderStockView = renderStockView;
         window.renderReceivablesView = renderReceivablesView;
         window.renderExpensesView = renderExpensesView;
+        
         window.deleteTx = function(type, id) { if(confirm("Excluir?")) db.ref(getFinancePath(currentUser.uid, type) + '/' + id).remove(); };
         window.deleteStock = function(id) { if(confirm("Remover?")) db.ref(getStockPath(currentUser.uid) + '/' + id).remove(); };
         window.settleTx = function(type, id) {
@@ -539,7 +516,7 @@
     };
     
     window.openStockModal = function() {
-        var html = `<form id="st-form" class="grid gap-2"><input id="s-name" placeholder="Nome" class="border p-2" required><input id="s-qty" type="number" placeholder="Qtd Inicial" class="border p-2" required><input id="s-unit" placeholder="Unidade (ex: cx, un)" class="border p-2" required><button class="bg-green-600 text-white p-2 rounded">Salvar</button></form>`;
+        var html = `<form id="st-form" class="grid gap-2"><input id="s-name" placeholder="Nome" class="border p-2" required><input id="s-qty" type="number" placeholder="Qtd" class="border p-2" required><input id="s-unit" placeholder="Un" class="border p-2" required><button class="bg-green-600 text-white p-2 rounded">Salvar</button></form>`;
         openModal("Novo Material", html);
         document.getElementById('st-form').onsubmit = function(e) {
             e.preventDefault();
