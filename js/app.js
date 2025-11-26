@@ -1,17 +1,18 @@
 // ==================================================================
-// MÓDULO PRINCIPAL - DENTISTA INTELIGENTE (PARTE 1/2)
+// MÓDULO PRINCIPAL - DENTISTA INTELIGENTE (VERSÃO LIMPA E CORRETA)
 // ==================================================================
 (function() {
     
-    // 1. CONFIGURAÇÕES E ESTADO
+    // 1. CONFIGURAÇÕES
     var config = window.AppConfig;
     var appId = config ? config.APP_ID : 'dentista-inteligente-app';
     
+    // ESTADO
     var db, auth;
     var currentUser = null;
     var currentView = 'dashboard';
     var isLoginMode = true; 
-    var selectedFile = null; 
+    var selectedFile = null;
     var currentChatRef = null;
     
     // CACHES DE DADOS
@@ -28,8 +29,7 @@
     function getStockPath(uid) { return getAdminPath(uid, 'stock'); }
     function getFinancePath(uid, type) { return getAdminPath(uid, 'finance/' + type); }
     function getJournalPath(pid) { return 'artifacts/' + appId + '/patients/' + pid + '/journal'; }
-    
-    function getReceivableMaterialsPath(recId) { return getFinancePath(currentUser.uid, 'receivable') + '/' + recId + '/materials'; }
+    function getRecMatPath(recId) { return getFinancePath(currentUser.uid, 'receivable') + '/' + recId + '/materials'; }
     function getExpensePurchasedItemsPath(expId) { return getFinancePath(currentUser.uid, 'expenses') + '/' + expId + '/purchasedItems'; }
 
     function formatCurrency(value) { return 'R$ ' + parseFloat(value || 0).toFixed(2).replace('.', ','); }
@@ -40,10 +40,7 @@
         return isNaN(d) ? '-' : d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'});
     }
     
-    function formatFileName(name) {
-        if (name && name.length > 20) return name.substring(0, 10) + '...' + name.substring(name.length - 7);
-        return name || '';
-    }
+    function formatFileName(name) { return name.length > 20 ? name.substring(0, 10) + '...' : name || ''; }
     
     function getPaymentBadge(method) {
         var icons = {
@@ -57,10 +54,8 @@
         return icons[method] || '<span class="text-gray-500 text-xs">-</span>';
     }
 
-    function showNotification(message, type) { console.log('[' + (type || 'INFO') + '] ' + message); }
-
     // ==================================================================
-    // 3. INICIALIZAÇÃO E LOGIN
+    // 3. LOGIN E INICIALIZAÇÃO
     // ==================================================================
     
     function initializeFirebase() {
@@ -159,8 +154,6 @@
         e.preventDefault();
         var em = document.getElementById('auth-email').value;
         var pw = document.getElementById('auth-password').value;
-        var btn = document.getElementById('auth-submit-btn');
-        btn.disabled = true; btn.textContent = '...';
         try {
             if (isLoginMode) await auth.signInWithEmailAndPassword(em, pw);
             else {
@@ -169,21 +162,18 @@
                     email: em, role: 'dentist', registeredAt: new Date().toISOString()
                 });
             }
-        } catch (error) { 
-            alert("Erro: " + error.message); 
-            btn.disabled = false; btn.textContent = isLoginMode ? 'Entrar' : 'Cadastrar';
-        }
+        } catch (error) { alert("Erro: " + error.message); }
     }
 
+    // --- NAV ---
     function navigateTo(view) {
         if(!currentUser) return;
         currentView = view;
-        var content = document.getElementById('main-content');
-        content.innerHTML = '';
-        
-        if (view === 'dashboard') renderDashboard(content);
-        else if (view === 'patients') renderPatientManager(content);
-        else if (view === 'financials') renderFinancialManager(content);
+        var main = document.getElementById('main-content');
+        main.innerHTML = '';
+        if (view === 'dashboard') renderDashboard(main);
+        else if (view === 'patients') renderPatientManager(main);
+        else if (view === 'financials') renderFinancialManager(main);
         
         document.querySelectorAll('#nav-menu button').forEach(function(btn) {
             var active = btn.dataset.view === view;
@@ -203,10 +193,10 @@
             menu.appendChild(btn);
         });
     }
-    // ==================================================================
-    // 5. TELAS (PARTE 2)
-    // ==================================================================
 
+    // ==================================================================
+    // 5. DASHBOARD
+    // ==================================================================
     function renderDashboard(container) {
         container.innerHTML = `
             <div class="p-8 bg-white shadow-2xl rounded-2xl border border-indigo-100">
@@ -214,12 +204,12 @@
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                     <div class="p-4 bg-indigo-100 rounded-lg"><p class="text-gray-600 text-sm uppercase font-bold">Pacientes</p><h3 class="text-2xl font-bold text-indigo-800" id="dash-pat">0</h3></div>
                     <div class="p-4 bg-green-100 rounded-lg"><p class="text-gray-600 text-sm uppercase font-bold">Estoque</p><h3 class="text-3xl font-bold text-green-800" id="dash-stk">0</h3></div>
-                    <div class="p-4 bg-yellow-100 rounded-lg"><p class="text-gray-600 text-sm uppercase font-bold">Faturamento (Recebido)</p><h3 class="text-2xl font-bold text-yellow-800" id="dash-rec">R$ 0,00</h3></div>
-                    <div class="p-4 bg-red-100 rounded-lg"><p class="text-gray-600 text-sm uppercase font-bold">Despesas (Pagas)</p><h3 class="text-2xl font-bold text-red-800" id="dash-exp">R$ 0,00</h3></div>
+                    <div class="p-4 bg-yellow-100 rounded-lg"><p class="text-gray-600 text-sm uppercase font-bold">Recebido</p><h3 class="text-2xl font-bold text-yellow-800" id="dash-rec">R$ 0,00</h3></div>
+                    <div class="p-4 bg-red-100 rounded-lg"><p class="text-gray-600 text-sm uppercase font-bold">Pago</p><h3 class="text-2xl font-bold text-red-800" id="dash-exp">R$ 0,00</h3></div>
                 </div>
                 <div class="border p-4 rounded-xl bg-gray-50">
                     <h3 class="font-bold text-indigo-800 mb-2">Instruções da IA (Brain)</h3>
-                    <textarea id="brain-input" class="w-full p-2 border rounded text-sm" rows="3" placeholder="Ex: Focar em implantes..."></textarea>
+                    <textarea id="brain-input" class="w-full p-2 border rounded text-sm" rows="3"></textarea>
                     <button id="save-brain-btn" class="mt-2 bg-indigo-600 text-white px-4 py-1 rounded text-sm">Salvar Diretrizes</button>
                 </div>
                 <footer class="text-center py-4 text-xs text-gray-400 mt-8">Desenvolvido com 🤖, por <strong>thIAguinho Soluções</strong></footer>
@@ -227,18 +217,18 @@
         updateKPIs();
         var brainRef = db.ref(getAdminPath(currentUser.uid, 'aiConfig/directives'));
         brainRef.once('value', function(s) { if(s.exists()) document.getElementById('brain-input').value = s.val().promptDirectives; });
-        document.getElementById('save-brain-btn').onclick = function() {
-            brainRef.update({ promptDirectives: document.getElementById('brain-input').value });
-            alert("IA Atualizada!");
-        };
+        document.getElementById('save-brain-btn').onclick = function() { brainRef.update({ promptDirectives: document.getElementById('brain-input').value }); alert("IA Atualizada!"); };
     }
 
+    // ==================================================================
+    // 6. PACIENTES
+    // ==================================================================
     function renderPatientManager(container) {
         container.innerHTML = `
             <div class="p-8 bg-white shadow-lg rounded-2xl">
                 <div class="flex justify-between mb-6">
                     <h2 class="text-2xl font-bold text-indigo-800">Pacientes</h2>
-                    <button onclick="openPatientModal()" class="bg-indigo-600 text-white px-4 py-2 rounded shadow hover:bg-indigo-700">Novo Paciente</button>
+                    <button onclick="openPatientModal()" class="bg-indigo-600 text-white px-4 py-2 rounded shadow">Novo Paciente</button>
                 </div>
                 <div class="overflow-x-auto"><table class="w-full text-left"><thead class="bg-gray-100 text-gray-600"><tr><th class="p-3">Nome</th><th class="p-3">Email/Tel</th><th class="p-3 text-right">Ações</th></tr></thead><tbody id="patient-list-body"></tbody></table></div>
                 <footer class="text-center py-4 text-xs text-gray-400 mt-auto">Desenvolvido com 🤖, por <strong>thIAguinho Soluções</strong></footer>
@@ -276,20 +266,14 @@
                 <input type="hidden" id="p-id" value="${isEdit ? p.id : ''}">
                 <div class="col-span-2"><label class="font-bold">Nome Completo</label><input id="p-name" class="w-full border p-2 rounded" value="${isEdit ? p.name : ''}" required></div>
                 <div><label class="font-bold">Email (Login)</label><input id="p-email" type="email" class="w-full border p-2 rounded" value="${isEdit ? p.email : ''}"></div>
-                <div><label class="font-bold">Telefone</label><input id="p-phone" class="w-full border p-2 rounded" value="${isEdit ? p.phone : ''}" placeholder="(00) 00000-0000"></div>
+                <div><label class="font-bold">Telefone</label><input id="p-phone" class="w-full border p-2 rounded" value="${isEdit ? p.phone : ''}"></div>
                 <div><label class="font-bold">CPF</label><input id="p-cpf" class="w-full border p-2 rounded" value="${isEdit ? p.cpf : ''}"></div>
-                <div><label class="font-bold">Tratamento</label>
-                <select id="p-type" class="w-full border p-2 rounded">
-                    <option ${isEdit && p.treatmentType==='Geral'?'selected':''}>Geral</option>
-                    <option ${isEdit && p.treatmentType==='Ortodontia'?'selected':''}>Ortodontia</option>
-                    <option ${isEdit && p.treatmentType==='Implante'?'selected':''}>Implante</option>
-                    <option ${isEdit && p.treatmentType==='Estética'?'selected':''}>Estética</option>
-                </select></div>
+                <div><label class="font-bold">Tratamento</label><select id="p-type" class="w-full border p-2 rounded"><option ${isEdit && p.treatmentType==='Geral'?'selected':''}>Geral</option><option ${isEdit && p.treatmentType==='Ortodontia'?'selected':''}>Ortodontia</option><option ${isEdit && p.treatmentType==='Implante'?'selected':''}>Implante</option></select></div>
                 <div class="col-span-2"><label class="font-bold">Endereço</label><input id="p-address" class="w-full border p-2 rounded" value="${isEdit ? p.address : ''}"></div>
                 <div class="col-span-2"><label class="font-bold">Meta Clínica</label><textarea id="p-goal" class="w-full border p-2 rounded" rows="2">${isEdit ? p.treatmentGoal : ''}</textarea></div>
                 <button class="col-span-2 bg-green-600 text-white py-2 rounded font-bold">Salvar Ficha</button>
             </form>`;
-        openModal(isEdit ? 'Editar Paciente' : 'Novo Paciente', html, 'max-w-2xl');
+        openModal(isEdit ? 'Editar' : 'Novo', html, 'max-w-2xl');
         document.getElementById('form-pat').onsubmit = function(e) {
             e.preventDefault();
             var data = {
@@ -310,7 +294,10 @@
 
     function deletePatient(id) { if(confirm("Excluir?")) db.ref(getAdminPath(currentUser.uid, 'patients') + '/' + id).remove(); }
 
-    // --- PRONTUÁRIO ---
+    // ==================================================================
+    // 7. PRONTUÁRIO E CHAT (IA PRIVADA)
+    // ==================================================================
+
     function openJournal(id) {
         if(currentChatRef) currentChatRef.off();
         var p = allPatients.find(function(x){ return x.id === id; });
@@ -413,16 +400,18 @@
             var snaps = await db.ref(getJournalPath(pid)).limitToLast(5).once('value');
             var hist = "";
             snaps.forEach(s => hist += `${s.val().author}: ${s.val().text}\n`);
-            var prompt = `ATUE COMO: Dentista Sênior Especialista. PACIENTE: ${p.name}. HISTÓRICO RECENTE: ${hist}\nTAREFA: Analise o caso e sugira a próxima conduta técnica.`;
-            var resp = await window.callGeminiAPI(prompt, "Análise Clínica");
-            
+            var prompt = `ATUE COMO: Dentista Sênior. PACIENTE: ${p.name}. HISTÓRICO: ${hist}\nTAREFA: Sugira a próxima conduta técnica.`;
+            var resp = await window.callGeminiAPI(prompt, "Análise.");
             var input = document.getElementById('chat-msg');
             if(input) { input.value = "🤖 " + resp; input.focus(); }
         } catch (e) { alert("Erro IA: " + e.message); } 
         finally { if(btn) { btn.innerHTML = icon; btn.disabled = false; } }
     };
 
-    // --- FINANCEIRO ---
+    // ==================================================================
+    // 8. FINANCEIRO E ESTOQUE
+    // ==================================================================
+
     function renderFinancialManager(container) {
         container.innerHTML = `
             <div class="p-8 bg-white shadow-lg rounded-2xl">
@@ -438,11 +427,10 @@
         window.renderStockView = renderStockView;
         window.renderReceivablesView = renderReceivablesView;
         window.renderExpensesView = renderExpensesView;
-        
         window.deleteTx = function(type, id) { if(confirm("Excluir?")) db.ref(getFinancePath(currentUser.uid, type) + '/' + id).remove(); };
         window.deleteStock = function(id) { if(confirm("Remover?")) db.ref(getStockPath(currentUser.uid) + '/' + id).remove(); };
         window.settleTx = function(type, id) {
-            if(!confirm("Confirmar baixa?")) return;
+            if(!confirm("Baixar?")) return;
             var updates = { status: type === 'receivable' ? 'Recebido' : 'Pago' };
             if(type === 'receivable') updates.receivedDate = new Date().toISOString(); else updates.paidDate = new Date().toISOString();
             db.ref(getFinancePath(currentUser.uid, type) + '/' + id).update(updates);
