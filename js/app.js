@@ -1,45 +1,29 @@
-// ==================================================================
-// MÓDULO PRINCIPAL - DENTISTA INTELIGENTE (VERSÃO LIMPA E CORRETA)
-// ==================================================================
 (function() {
-    
-    // 1. CONFIGURAÇÕES
     var config = window.AppConfig;
     var appId = config ? config.APP_ID : 'dentista-inteligente-app';
-    
-    // ESTADO
-    var db, auth;
-    var currentUser = null;
-    var currentView = 'dashboard';
+    var db, auth, currentUser, currentView = 'dashboard';
     var isLoginMode = true; 
-    var selectedFile = null;
+    var selectedFile = null; 
     var currentChatRef = null;
     
-    // CACHES DE DADOS
     var allPatients = []; 
     var receivables = []; 
     var stockItems = []; 
     var expenses = []; 
     
-    // ==================================================================
-    // 2. UTILITÁRIOS
-    // ==================================================================
-    
     function getAdminPath(uid, path) { return 'artifacts/' + appId + '/users/' + uid + '/' + path; }
     function getStockPath(uid) { return getAdminPath(uid, 'stock'); }
     function getFinancePath(uid, type) { return getAdminPath(uid, 'finance/' + type); }
     function getJournalPath(pid) { return 'artifacts/' + appId + '/patients/' + pid + '/journal'; }
-    function getRecMatPath(recId) { return getFinancePath(currentUser.uid, 'receivable') + '/' + recId + '/materials'; }
+    function getReceivableMaterialsPath(recId) { return getFinancePath(currentUser.uid, 'receivable') + '/' + recId + '/materials'; }
     function getExpensePurchasedItemsPath(expId) { return getFinancePath(currentUser.uid, 'expenses') + '/' + expId + '/purchasedItems'; }
 
     function formatCurrency(value) { return 'R$ ' + parseFloat(value || 0).toFixed(2).replace('.', ','); }
-
     function formatDateTime(iso) {
         if(!iso) return '-';
         var d = new Date(iso);
         return isNaN(d) ? '-' : d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'});
     }
-    
     function formatFileName(name) { return name.length > 20 ? name.substring(0, 10) + '...' : name || ''; }
     
     function getPaymentBadge(method) {
@@ -54,10 +38,6 @@
         return icons[method] || '<span class="text-gray-500 text-xs">-</span>';
     }
 
-    // ==================================================================
-    // 3. LOGIN E INICIALIZAÇÃO
-    // ==================================================================
-    
     function initializeFirebase() {
         if (!firebase.apps.length) firebase.initializeApp(config.firebaseConfig);
         db = firebase.database();
@@ -95,21 +75,18 @@
             updateKPIs();
             if(currentView === 'patients') renderPatientManager(document.getElementById('main-content'));
         });
-
         db.ref(getStockPath(currentUser.uid)).on('value', function(s) {
             stockItems = [];
             if(s.exists()) s.forEach(function(c) { var i = c.val(); i.id = c.key; stockItems.push(i); });
             updateKPIs();
             if(currentView === 'financials' && document.getElementById('stock-view')) renderStockView();
         });
-        
         db.ref(getFinancePath(currentUser.uid, 'receivable')).on('value', function(s) {
             receivables = [];
             if(s.exists()) s.forEach(function(c) { var r = c.val(); r.id = c.key; receivables.push(r); });
             updateKPIs();
             if(currentView === 'financials' && document.getElementById('receivables-view')) renderReceivablesView();
         });
-        
         db.ref(getFinancePath(currentUser.uid, 'expenses')).on('value', function(s) {
             expenses = [];
             if(s.exists()) s.forEach(function(c) { var e = c.val(); e.id = c.key; expenses.push(e); });
@@ -165,19 +142,16 @@
         } catch (error) { alert("Erro: " + error.message); }
     }
 
-    // --- NAV ---
     function navigateTo(view) {
         if(!currentUser) return;
         currentView = view;
-        var main = document.getElementById('main-content');
-        main.innerHTML = '';
-        if (view === 'dashboard') renderDashboard(main);
-        else if (view === 'patients') renderPatientManager(main);
-        else if (view === 'financials') renderFinancialManager(main);
-        
+        var content = document.getElementById('main-content');
+        content.innerHTML = '';
+        if (view === 'dashboard') renderDashboard(content);
+        else if (view === 'patients') renderPatientManager(content);
+        else if (view === 'financials') renderFinancialManager(content);
         document.querySelectorAll('#nav-menu button').forEach(function(btn) {
-            var active = btn.dataset.view === view;
-            btn.className = active ? 'flex items-center p-3 rounded-xl w-full text-left bg-indigo-600 text-white shadow-lg' : 'flex items-center p-3 rounded-xl w-full text-left text-indigo-200 hover:bg-indigo-700 hover:text-white';
+            btn.className = btn.dataset.view === view ? 'flex items-center p-3 rounded-xl w-full text-left bg-indigo-600 text-white shadow-lg' : 'flex items-center p-3 rounded-xl w-full text-left text-indigo-200 hover:bg-indigo-700 hover:text-white';
         });
     }
     
@@ -194,9 +168,6 @@
         });
     }
 
-    // ==================================================================
-    // 5. DASHBOARD
-    // ==================================================================
     function renderDashboard(container) {
         container.innerHTML = `
             <div class="p-8 bg-white shadow-2xl rounded-2xl border border-indigo-100">
@@ -217,18 +188,18 @@
         updateKPIs();
         var brainRef = db.ref(getAdminPath(currentUser.uid, 'aiConfig/directives'));
         brainRef.once('value', function(s) { if(s.exists()) document.getElementById('brain-input').value = s.val().promptDirectives; });
-        document.getElementById('save-brain-btn').onclick = function() { brainRef.update({ promptDirectives: document.getElementById('brain-input').value }); alert("IA Atualizada!"); };
+        document.getElementById('save-brain-btn').onclick = function() {
+            brainRef.update({ promptDirectives: document.getElementById('brain-input').value });
+            alert("IA Atualizada!");
+        };
     }
 
-    // ==================================================================
-    // 6. PACIENTES
-    // ==================================================================
     function renderPatientManager(container) {
         container.innerHTML = `
             <div class="p-8 bg-white shadow-lg rounded-2xl">
                 <div class="flex justify-between mb-6">
                     <h2 class="text-2xl font-bold text-indigo-800">Pacientes</h2>
-                    <button onclick="openPatientModal()" class="bg-indigo-600 text-white px-4 py-2 rounded shadow">Novo Paciente</button>
+                    <button onclick="openPatientModal()" class="bg-indigo-600 text-white px-4 py-2 rounded shadow hover:bg-indigo-700">Novo Paciente</button>
                 </div>
                 <div class="overflow-x-auto"><table class="w-full text-left"><thead class="bg-gray-100 text-gray-600"><tr><th class="p-3">Nome</th><th class="p-3">Email/Tel</th><th class="p-3 text-right">Ações</th></tr></thead><tbody id="patient-list-body"></tbody></table></div>
                 <footer class="text-center py-4 text-xs text-gray-400 mt-auto">Desenvolvido com 🤖, por <strong>thIAguinho Soluções</strong></footer>
@@ -268,7 +239,8 @@
                 <div><label class="font-bold">Email (Login)</label><input id="p-email" type="email" class="w-full border p-2 rounded" value="${isEdit ? p.email : ''}"></div>
                 <div><label class="font-bold">Telefone</label><input id="p-phone" class="w-full border p-2 rounded" value="${isEdit ? p.phone : ''}"></div>
                 <div><label class="font-bold">CPF</label><input id="p-cpf" class="w-full border p-2 rounded" value="${isEdit ? p.cpf : ''}"></div>
-                <div><label class="font-bold">Tratamento</label><select id="p-type" class="w-full border p-2 rounded"><option ${isEdit && p.treatmentType==='Geral'?'selected':''}>Geral</option><option ${isEdit && p.treatmentType==='Ortodontia'?'selected':''}>Ortodontia</option><option ${isEdit && p.treatmentType==='Implante'?'selected':''}>Implante</option></select></div>
+                <div><label class="font-bold">Tratamento</label>
+                <select id="p-type" class="w-full border p-2 rounded"><option ${isEdit && p.treatmentType==='Geral'?'selected':''}>Geral</option><option ${isEdit && p.treatmentType==='Ortodontia'?'selected':''}>Ortodontia</option><option ${isEdit && p.treatmentType==='Implante'?'selected':''}>Implante</option><option ${isEdit && p.treatmentType==='Estética'?'selected':''}>Estética</option></select></div>
                 <div class="col-span-2"><label class="font-bold">Endereço</label><input id="p-address" class="w-full border p-2 rounded" value="${isEdit ? p.address : ''}"></div>
                 <div class="col-span-2"><label class="font-bold">Meta Clínica</label><textarea id="p-goal" class="w-full border p-2 rounded" rows="2">${isEdit ? p.treatmentGoal : ''}</textarea></div>
                 <button class="col-span-2 bg-green-600 text-white py-2 rounded font-bold">Salvar Ficha</button>
@@ -294,15 +266,10 @@
 
     function deletePatient(id) { if(confirm("Excluir?")) db.ref(getAdminPath(currentUser.uid, 'patients') + '/' + id).remove(); }
 
-    // ==================================================================
-    // 7. PRONTUÁRIO E CHAT (IA PRIVADA)
-    // ==================================================================
-
     function openJournal(id) {
         if(currentChatRef) currentChatRef.off();
         var p = allPatients.find(function(x){ return x.id === id; });
         if(!p) return;
-        
         var html = `
             <div class="bg-indigo-50 p-4 rounded-xl mb-4 text-sm flex justify-between">
                 <div><h3 class="font-bold text-indigo-900">${p.name}</h3><p class="text-indigo-700">${p.email || ''} | ${p.phone || ''}</p></div>
@@ -312,39 +279,25 @@
                 <div class="border p-3 rounded-xl bg-white flex flex-col"><h4 class="font-bold text-xs text-gray-500 mb-2 uppercase">Histórico Financeiro</h4><div id="journal-fin-list" class="text-sm h-80 overflow-y-auto space-y-2 pr-2">Carregando...</div></div>
                 <div class="border p-3 rounded-xl bg-white flex flex-col"><h4 class="font-bold text-xs text-gray-500 mb-2 uppercase">Chat</h4><div id="chat-area" class="bg-gray-50 p-2 h-64 overflow-y-auto flex flex-col gap-2 mb-2 rounded"></div>
                     <div class="flex gap-2 items-center bg-gray-100 p-2 rounded-xl mt-auto">
-                         <input type="file" id="chat-file" class="hidden" accept="image/*">
-                         <button onclick="document.getElementById('chat-file').click()" class="text-gray-500 hover:text-indigo-600 p-2"><i class='bx bx-paperclip text-xl'></i></button>
+                         <input type="file" id="chat-file" class="hidden" accept="image/*"><button onclick="document.getElementById('chat-file').click()" class="text-gray-500 hover:text-indigo-600 p-2"><i class='bx bx-paperclip text-xl'></i></button>
                          <input id="chat-msg" class="flex-grow bg-transparent outline-none text-sm" placeholder="Mensagem...">
                          <button onclick="sendChat('${id}')" class="bg-indigo-600 text-white p-2 rounded-lg"><i class='bx bxs-send'></i></button>
                          <button onclick="askAI('${id}')" class="bg-purple-600 text-white p-2 rounded-lg" title="Consultar IA (Privado)"><i class='bx bxs-magic-wand'></i></button>
-                    </div>
-                    <div id="file-preview" class="text-xs text-gray-500 mt-1 hidden pl-2"></div>
+                    </div><div id="file-preview" class="text-xs text-gray-500 mt-1 hidden pl-2"></div>
                 </div>
             </div>`;
         openModal("Prontuário Digital", html, 'max-w-6xl');
-
-        document.getElementById('chat-file').onchange = function(e) {
-            selectedFile = e.target.files[0];
-            if(selectedFile) { document.getElementById('file-preview').textContent = "Anexo: " + selectedFile.name; document.getElementById('file-preview').classList.remove('hidden'); }
-        };
-
+        document.getElementById('chat-file').onchange = function(e) { selectedFile = e.target.files[0]; if(selectedFile) { document.getElementById('file-preview').textContent = "Anexo: " + selectedFile.name; document.getElementById('file-preview').classList.remove('hidden'); }};
         loadPatientServiceHistory(id);
-
         currentChatRef = db.ref(getJournalPath(id));
         currentChatRef.limitToLast(50).on('value', function(snap) {
-            var div = document.getElementById('chat-area');
-            if(!div) return;
-            div.innerHTML = '';
+            var div = document.getElementById('chat-area'); if(!div) return; div.innerHTML = '';
             if(snap.exists()) {
                 snap.forEach(function(c) {
-                    var m = c.val();
-                    var isMe = m.author === 'Dentista';
-                    var align = isMe ? 'self-end bg-indigo-600 text-white' : 'self-start bg-gray-100 border text-gray-800';
+                    var m = c.val(); var isMe = m.author === 'Dentista'; var align = isMe ? 'self-end bg-indigo-600 text-white' : 'self-start bg-gray-100 border text-gray-800';
                     var imgHtml = m.media ? `<br><a href="${m.media.url}" target="_blank"><img src="${m.media.url}" class="mt-1 rounded-lg max-h-32 border border-white/30"></a>` : '';
-                    var el = document.createElement('div');
-                    el.className = `p-2 rounded-xl text-sm max-w-[90%] shadow-sm ${align}`;
-                    el.innerHTML = `<div class="font-bold text-[10px] opacity-80 uppercase">${m.author}</div><div>${m.text}</div>${imgHtml}<div class="text-[10px] text-right opacity-60 mt-1">${formatDateTime(m.timestamp).split(' ')[1]}</div>`;
-                    div.appendChild(el);
+                    div.innerHTML += `<div class="p-2 rounded-xl text-sm max-w-[90%] shadow-sm ${align}"><div class="font-bold text-[10px] opacity-80 uppercase">${m.author}</div><div>${m.text}</div>${imgHtml}<div class="text-[10px] text-right opacity-60 mt-1">${formatDateTime(m.timestamp).split(' ')[1]}</div></div>`;
+                    div.appendChild(document.createElement('div')); // Fix scroll
                 });
                 div.scrollTop = div.scrollHeight;
             }
@@ -353,20 +306,13 @@
     
     function loadPatientServiceHistory(patientId) {
         db.ref(getFinancePath(currentUser.uid, 'receivable')).orderByChild('patientId').equalTo(patientId).once('value', async function(s) {
-            var div = document.getElementById('journal-fin-list');
-            if(!div) return;
-            div.innerHTML = '';
+            var div = document.getElementById('journal-fin-list'); if(!div) return; div.innerHTML = '';
             if(s.exists()) {
                 var data = s.val();
                 for(var key in data) {
-                    var item = data[key];
-                    var matsHTML = '';
+                    var item = data[key]; var matsHTML = '';
                     var matSnap = await db.ref(getReceivableMaterialsPath(key)).once('value');
-                    if(matSnap.exists()) {
-                        var arr = [];
-                        matSnap.forEach(function(m) { arr.push(`${m.val().quantityUsed} ${m.val().unit} ${m.val().name}`); });
-                        matsHTML = `<div class="text-xs text-gray-500 mt-1 bg-gray-100 p-1 rounded">🛠️ ${arr.join(', ')}</div>`;
-                    }
+                    if(matSnap.exists()) { var arr = []; matSnap.forEach(function(m) { arr.push(`${m.val().quantityUsed} ${m.val().unit} ${m.val().name}`); }); matsHTML = `<div class="text-xs text-gray-500 mt-1 bg-gray-100 p-1 rounded">🛠️ ${arr.join(', ')}</div>`; }
                     div.innerHTML += `<div class="border-b pb-2 mb-2 p-2 hover:bg-gray-50 rounded"><div class="flex justify-between items-center"><span class="font-bold text-gray-700">${item.description}</span><span class="font-bold ${item.status==='Recebido'?'text-green-600':'text-yellow-600'} text-xs">${item.status}</span></div><div class="text-xs text-gray-400 flex justify-between mt-1"><span>${formatDateTime(item.dueDate).split(' ')[0]}</span><span>${formatCurrency(item.amount)}</span></div>${matsHTML}</div>`;
                 }
             } else { div.innerHTML = '<i class="text-gray-400 text-xs">Sem registros.</i>'; }
@@ -374,21 +320,15 @@
     }
 
     window.sendChat = async function(pid, author, txt) {
-        var input = document.getElementById('chat-msg');
-        var msgText = txt || (input ? input.value : "");
+        var input = document.getElementById('chat-msg'); var msgText = txt || (input ? input.value : "");
         if(!msgText && !selectedFile) return;
-        var btn = document.querySelector('button[onclick*="sendChat"]');
-        if(btn) btn.disabled = true;
+        var btn = document.querySelector('button[onclick*="sendChat"]'); if(btn) btn.disabled = true;
         var mediaData = null;
-        if(selectedFile && window.uploadToCloudinary) {
-            try { mediaData = await window.uploadToCloudinary(selectedFile); } catch(e){ alert("Erro upload"); if(btn) btn.disabled = false; return; }
-        }
+        if(selectedFile && window.uploadToCloudinary) { try { mediaData = await window.uploadToCloudinary(selectedFile); } catch(e){ alert("Erro upload"); if(btn) btn.disabled = false; return; } }
         db.ref(getJournalPath(pid)).push({ text: msgText || (mediaData?"Anexo":""), author: author || 'Dentista', media: mediaData, timestamp: new Date().toISOString() });
-        if(input) input.value = '';
-        if(document.getElementById('chat-file')) document.getElementById('chat-file').value = '';
+        if(input) input.value = ''; if(document.getElementById('chat-file')) document.getElementById('chat-file').value = '';
         if(document.getElementById('file-preview')) document.getElementById('file-preview').classList.add('hidden');
-        selectedFile = null;
-        if(btn) btn.disabled = false;
+        selectedFile = null; if(btn) btn.disabled = false;
     };
 
     window.askAI = async function(pid) {
@@ -398,19 +338,13 @@
         if(btn) { btn.innerHTML = '<i class="bx bx-loader-alt bx-spin"></i>'; btn.disabled = true; }
         try {
             var snaps = await db.ref(getJournalPath(pid)).limitToLast(5).once('value');
-            var hist = "";
-            snaps.forEach(s => hist += `${s.val().author}: ${s.val().text}\n`);
-            var prompt = `ATUE COMO: Dentista Sênior. PACIENTE: ${p.name}. HISTÓRICO: ${hist}\nTAREFA: Sugira a próxima conduta técnica.`;
+            var hist = ""; snaps.forEach(s => hist += `${s.val().author}: ${s.val().text}\n`);
+            var prompt = `ATUE COMO: Dentista Sênior. PACIENTE: ${p.name}. HISTÓRICO: ${hist}\nTAREFA: Sugira conduta.`;
             var resp = await window.callGeminiAPI(prompt, "Análise.");
             var input = document.getElementById('chat-msg');
             if(input) { input.value = "🤖 " + resp; input.focus(); }
-        } catch (e) { alert("Erro IA: " + e.message); } 
-        finally { if(btn) { btn.innerHTML = icon; btn.disabled = false; } }
+        } catch (e) { alert("Erro IA: " + e.message); } finally { if(btn) { btn.innerHTML = icon; btn.disabled = false; } }
     };
-
-    // ==================================================================
-    // 8. FINANCEIRO E ESTOQUE
-    // ==================================================================
 
     function renderFinancialManager(container) {
         container.innerHTML = `
@@ -424,70 +358,40 @@
                 <div id="fin-content-area"></div>
                 <footer class="text-center py-4 text-xs text-gray-400 mt-8">Desenvolvido com 🤖, por <strong>thIAguinho Soluções</strong></footer>
             </div>`;
-        window.renderStockView = renderStockView;
-        window.renderReceivablesView = renderReceivablesView;
-        window.renderExpensesView = renderExpensesView;
+        window.renderStockView = renderStockView; window.renderReceivablesView = renderReceivablesView; window.renderExpensesView = renderExpensesView;
         window.deleteTx = function(type, id) { if(confirm("Excluir?")) db.ref(getFinancePath(currentUser.uid, type) + '/' + id).remove(); };
         window.deleteStock = function(id) { if(confirm("Remover?")) db.ref(getStockPath(currentUser.uid) + '/' + id).remove(); };
-        window.settleTx = function(type, id) {
-            if(!confirm("Baixar?")) return;
-            var updates = { status: type === 'receivable' ? 'Recebido' : 'Pago' };
-            if(type === 'receivable') updates.receivedDate = new Date().toISOString(); else updates.paidDate = new Date().toISOString();
-            db.ref(getFinancePath(currentUser.uid, type) + '/' + id).update(updates);
-        };
+        window.settleTx = function(type, id) { if(!confirm("Confirmar?")) return; var updates = { status: type === 'receivable' ? 'Recebido' : 'Pago' }; if(type === 'receivable') updates.receivedDate = new Date().toISOString(); else updates.paidDate = new Date().toISOString(); db.ref(getFinancePath(currentUser.uid, type) + '/' + id).update(updates); };
         renderStockView(); 
     }
 
     function renderStockView() {
         var div = document.getElementById('fin-content-area');
-        div.innerHTML = `<div class="flex justify-between mb-3"><h3 class="font-bold">Inventário</h3><button onclick="openStockModal()" class="bg-green-600 text-white px-3 py-1 rounded text-sm">+ Item Manual</button></div><div id="stock-view" class="overflow-x-auto"><table class="w-full text-sm text-left"><thead class="bg-gray-50 text-gray-600"><tr><th class="p-2">Item</th><th class="p-2">Qtd</th><th class="p-2">Custo</th><th class="p-2">Ação</th></tr></thead><tbody id="stock-table-body"></tbody></table></div>`;
+        div.innerHTML = `<div class="flex justify-between mb-3"><h3 class="font-bold">Inventário</h3><button onclick="openStockModal()" class="bg-green-600 text-white px-3 py-1 rounded text-sm">+ Item</button></div><div id="stock-view" class="overflow-x-auto"><table class="w-full text-sm text-left"><thead class="bg-gray-50 text-gray-600"><tr><th class="p-2">Item</th><th class="p-2">Qtd</th><th class="p-2">Custo</th><th class="p-2">Ação</th></tr></thead><tbody id="stock-table-body"></tbody></table></div>`;
         var tb = document.getElementById('stock-table-body');
-        if(stockItems.length > 0) {
-            stockItems.forEach(function(i) {
-                tb.innerHTML += `<tr class="border-b"><td class="p-2 font-medium">${i.name}</td><td class="p-2">${i.quantity} ${i.unit}</td><td class="p-2">${formatCurrency(i.cost)}</td><td class="p-2"><button onclick="deleteStock('${i.id}')" class="text-red-400"><i class='bx bx-trash'></i></button></td></tr>`;
-            });
-        } else { tb.innerHTML = '<tr><td colspan="4" class="p-3 text-center italic">Vazio.</td></tr>'; }
+        if(stockItems.length > 0) { stockItems.forEach(function(i) { tb.innerHTML += `<tr class="border-b"><td class="p-2 font-medium">${i.name}</td><td class="p-2">${i.quantity} ${i.unit}</td><td class="p-2">${formatCurrency(i.cost)}</td><td class="p-2"><button onclick="deleteStock('${i.id}')" class="text-red-400"><i class='bx bx-trash'></i></button></td></tr>`; }); } else { tb.innerHTML = '<tr><td colspan="4" class="p-3 text-center italic">Vazio.</td></tr>'; }
     }
 
     function renderReceivablesView() {
         var div = document.getElementById('fin-content-area');
         div.innerHTML = `<div class="flex justify-between mb-3"><h3 class="font-bold">Serviços</h3><button onclick="openRecModal()" class="bg-indigo-600 text-white px-3 py-1 rounded text-sm">+ Novo</button></div><div id="receivables-view" class="space-y-2"></div>`;
         var list = document.getElementById('receivables-view');
-        if(receivables.length > 0) {
-            receivables.forEach(function(r) {
-                var k = r.id;
-                var isPaid = r.status === 'Recebido';
-                var badge = isPaid ? `<span class="bg-green-100 text-green-800 text-xs px-2 rounded">Recebido</span>` : `<span class="bg-yellow-100 text-yellow-800 text-xs px-2 rounded">Aberto</span>`;
-                var action = isPaid ? '' : `<button onclick="settleTx('receivable', '${k}')" class="text-xs bg-green-500 text-white px-2 py-1 rounded ml-2"><i class='bx bx-check'></i></button>`;
-                list.innerHTML += `<div class="p-3 border rounded flex justify-between items-center bg-white hover:shadow-sm transition"><div><div class="font-bold text-indigo-900">${r.patientName} ${getPaymentBadge(r.paymentMethod)}</div><div class="text-xs text-gray-500">${r.description} - Venc: ${formatDateTime(r.dueDate).split(' ')[0]}</div></div><div class="text-right flex items-center gap-2">${badge}<div class="font-bold text-green-600 ml-2">${formatCurrency(r.amount)}</div><button onclick="manageMaterials('${k}')" class="text-xs bg-yellow-200 text-yellow-800 px-2 py-1 rounded" title="Baixa"><i class='bx bx-package'></i></button>${action}<button onclick="deleteTx('receivable', '${k}')" class="text-red-400"><i class='bx bx-trash'></i></button></div></div>`;
-            });
-        } else { list.innerHTML = '<p class="text-center text-gray-400">Vazio.</p>'; }
+        if(receivables.length > 0) { receivables.forEach(function(r) { var k = r.id; var isPaid = r.status === 'Recebido'; var badge = isPaid ? `<span class="bg-green-100 text-green-800 text-xs px-2 rounded">Recebido</span>` : `<span class="bg-yellow-100 text-yellow-800 text-xs px-2 rounded">Aberto</span>`; var action = isPaid ? '' : `<button onclick="settleTx('receivable', '${k}')" class="text-xs bg-green-500 text-white px-2 py-1 rounded ml-2"><i class='bx bx-check'></i></button>`; list.innerHTML += `<div class="p-3 border rounded flex justify-between items-center bg-white hover:shadow-sm transition"><div><div class="font-bold text-indigo-900">${r.patientName} ${getPaymentBadge(r.paymentMethod)}</div><div class="text-xs text-gray-500">${r.description} - Venc: ${formatDateTime(r.dueDate).split(' ')[0]}</div></div><div class="text-right flex items-center gap-2">${badge}<div class="font-bold text-green-600 ml-2">${formatCurrency(r.amount)}</div><button onclick="manageMaterials('${k}')" class="text-xs bg-yellow-200 text-yellow-800 px-2 py-1 rounded" title="Baixa"><i class='bx bx-package'></i></button>${action}<button onclick="deleteTx('receivable', '${k}')" class="text-red-400"><i class='bx bx-trash'></i></button></div></div>`; }); } else { list.innerHTML = '<p class="text-center text-gray-400">Vazio.</p>'; }
     }
 
     function renderExpensesView() {
         var div = document.getElementById('fin-content-area');
         div.innerHTML = `<div class="flex justify-between mb-3"><h3 class="font-bold">Despesas</h3><button onclick="openExpModal()" class="bg-red-600 text-white px-3 py-1 rounded text-sm">+ Nova</button></div><div id="expenses-view" class="space-y-2"></div>`;
         var list = document.getElementById('expenses-view');
-        if(expenses.length > 0) {
-            expenses.forEach(function(e) {
-                var k = e.id;
-                var isPaid = e.status === 'Pago';
-                var badge = isPaid ? `<span class="bg-green-100 text-green-800 text-xs px-2 rounded">Pago</span>` : `<span class="bg-red-100 text-red-800 text-xs px-2 rounded">Aberto</span>`;
-                var action = isPaid ? '' : `<button onclick="settleTx('expenses', '${k}')" class="text-xs bg-blue-500 text-white px-2 py-1 rounded ml-2"><i class='bx bx-check'></i></button>`;
-                list.innerHTML += `<div class="p-3 border rounded flex justify-between items-center bg-white hover:shadow-sm transition"><div><div class="font-bold text-gray-800">${e.supplier}</div><div class="text-xs text-gray-500">${e.description} - ${getPaymentBadge(e.paymentMethod)}</div></div><div class="text-right flex items-center gap-2">${badge}<div class="font-bold text-red-600 ml-2">${formatCurrency(e.amount)}</div><button onclick="managePurchaseItems('${k}')" class="text-xs bg-green-200 text-green-800 px-2 py-1 rounded" title="Entrada"><i class='bx bx-cart-add'></i></button>${action}<button onclick="deleteTx('expenses', '${k}')" class="text-red-400"><i class='bx bx-trash'></i></button></div></div>`;
-            });
-        } else { list.innerHTML = '<p class="text-center text-gray-400">Vazio.</p>'; }
+        if(expenses.length > 0) { expenses.forEach(function(e) { var k = e.id; var isPaid = e.status === 'Pago'; var badge = isPaid ? `<span class="bg-green-100 text-green-800 text-xs px-2 rounded">Pago</span>` : `<span class="bg-red-100 text-red-800 text-xs px-2 rounded">Aberto</span>`; var action = isPaid ? '' : `<button onclick="settleTx('expenses', '${k}')" class="text-xs bg-blue-500 text-white px-2 py-1 rounded ml-2"><i class='bx bx-check'></i></button>`; list.innerHTML += `<div class="p-3 border rounded flex justify-between items-center bg-white hover:shadow-sm transition"><div><div class="font-bold text-gray-800">${e.supplier}</div><div class="text-xs text-gray-500">${e.description} - ${getPaymentBadge(e.paymentMethod)}</div></div><div class="text-right flex items-center gap-2">${badge}<div class="font-bold text-red-600 ml-2">${formatCurrency(e.amount)}</div><button onclick="managePurchaseItems('${k}')" class="text-xs bg-green-200 text-green-800 px-2 py-1 rounded" title="Entrada"><i class='bx bx-cart-add'></i></button>${action}<button onclick="deleteTx('expenses', '${k}')" class="text-red-400"><i class='bx bx-trash'></i></button></div></div>`; }); } else { list.innerHTML = '<p class="text-center text-gray-400">Vazio.</p>'; }
     }
 
-    // --- MODAIS ---
     window.openRecModal = function(preselectPid) {
         var opts = allPatients.map(p => `<option value="${p.id}" ${preselectPid === p.id ? 'selected' : ''}>${p.name}</option>`).join('');
         var html = `<form id="rec-form" class="grid gap-3 text-sm"><div><label class="font-bold">Paciente</label><select id="r-pat" class="w-full border p-2 rounded">${opts}</select></div><div><label class="font-bold">Serviço</label><input id="r-desc" class="w-full border p-2 rounded" required></div><div class="grid grid-cols-2 gap-2"><div><label class="font-bold">Valor</label><input id="r-val" type="number" step="0.01" class="w-full border p-2 rounded" required></div><div><label class="font-bold">Vencimento</label><input id="r-date" type="date" class="w-full border p-2 rounded" required></div></div><div><label class="font-bold">Pagamento</label><select id="r-pay" class="w-full border p-2 rounded"><option value="pix">Pix</option><option value="credit">Cartão Crédito</option><option value="cash">Dinheiro</option></select></div><button class="bg-indigo-600 text-white p-2 rounded font-bold w-full mt-2">Salvar</button></form>`;
         openModal("Novo Serviço", html);
         document.getElementById('rec-form').onsubmit = function(e) {
-            e.preventDefault();
-            var pid = document.getElementById('r-pat').value;
-            var p = allPatients.find(x => x.id === pid);
+            e.preventDefault(); var pid = document.getElementById('r-pat').value; var p = allPatients.find(x => x.id === pid);
             var ref = db.ref(getFinancePath(currentUser.uid, 'receivable')).push();
             ref.set({ patientId: pid, patientName: p.name, description: document.getElementById('r-desc').value, amount: parseFloat(document.getElementById('r-val').value), dueDate: document.getElementById('r-date').value, paymentMethod: document.getElementById('r-pay').value, status: 'Aberto', registeredAt: new Date().toISOString() }).then(() => { closeModal(); setTimeout(() => window.manageMaterials(ref.key), 300); });
         };
@@ -497,8 +401,7 @@
         var html = `<form id="exp-form" class="grid gap-3 text-sm"><div><label class="font-bold">Fornecedor</label><input id="e-sup" class="w-full border p-2 rounded" required></div><div><label class="font-bold">Descrição</label><input id="e-desc" class="w-full border p-2 rounded" required></div><div class="grid grid-cols-2 gap-2"><div><label class="font-bold">Valor</label><input id="e-val" type="number" step="0.01" class="w-full border p-2 rounded" required></div><div><label class="font-bold">Ref</label><input id="e-ref" class="w-full border p-2 rounded"></div></div><div><label class="font-bold">Pagamento</label><select id="e-pay" class="w-full border p-2 rounded"><option value="pix">Pix</option><option value="boleto">Boleto</option></select></div><button class="bg-red-600 text-white p-2 rounded font-bold w-full mt-2">Salvar</button></form>`;
         openModal("Nova Despesa", html);
         document.getElementById('exp-form').onsubmit = function(e) {
-            e.preventDefault();
-            var ref = db.ref(getFinancePath(currentUser.uid, 'expenses')).push();
+            e.preventDefault(); var ref = db.ref(getFinancePath(currentUser.uid, 'expenses')).push();
             ref.set({ supplier: document.getElementById('e-sup').value, description: document.getElementById('e-desc').value, amount: parseFloat(document.getElementById('e-val').value), ref: document.getElementById('e-ref').value, paymentMethod: document.getElementById('e-pay').value, status: 'Aberto', registeredAt: new Date().toISOString() }).then(() => { closeModal(); setTimeout(() => window.managePurchaseItems(ref.key), 300); });
         };
     };
@@ -507,9 +410,7 @@
         var html = `<form id="st-form" class="grid gap-2"><input id="s-name" placeholder="Nome" class="border p-2" required><input id="s-qty" type="number" placeholder="Qtd" class="border p-2" required><input id="s-unit" placeholder="Un" class="border p-2" required><button class="bg-green-600 text-white p-2 rounded">Salvar</button></form>`;
         openModal("Novo Material", html);
         document.getElementById('st-form').onsubmit = function(e) {
-            e.preventDefault();
-            db.ref(getStockPath(currentUser.uid)).push({ name: document.getElementById('s-name').value, quantity: parseFloat(document.getElementById('s-qty').value), unit: document.getElementById('s-unit').value, cost: 0, supplier: 'Manual' });
-            closeModal();
+            e.preventDefault(); db.ref(getStockPath(currentUser.uid)).push({ name: document.getElementById('s-name').value, quantity: parseFloat(document.getElementById('s-qty').value), unit: document.getElementById('s-unit').value, cost: 0, supplier: 'Manual' }); closeModal();
         };
     };
 
@@ -520,12 +421,8 @@
         var ref = db.ref(getAdminPath(currentUser.uid, `finance/receivable/${recId}/materials`));
         ref.on('value', s => { var d = document.getElementById('used-list'); if(d){ d.innerHTML=''; if(s.exists()) s.forEach(x => d.innerHTML += `<div>- ${x.val().quantityUsed} ${x.val().unit} ${x.val().name}</div>`); }});
         document.getElementById('m-add').onclick = async function() {
-            var id = document.getElementById('m-sel').value; var q = parseFloat(document.getElementById('m-q').value);
-            var item = stockItems.find(x => x.id === id);
-            if(item && q > 0) {
-                await ref.push({ name: item.name, quantityUsed: q, unit: item.unit });
-                await db.ref(getStockPath(currentUser.uid) + '/' + id).update({ quantity: item.quantity - q });
-            }
+            var id = document.getElementById('m-sel').value; var q = parseFloat(document.getElementById('m-q').value); var item = stockItems.find(x => x.id === id);
+            if(item && q > 0) { await ref.push({ name: item.name, quantityUsed: q, unit: item.unit }); await db.ref(getStockPath(currentUser.uid) + '/' + id).update({ quantity: item.quantity - q }); }
         };
     };
 
@@ -552,11 +449,7 @@
         document.getElementById('modal-body').innerHTML = html;
         m.classList.remove('hidden'); m.classList.add('flex');
     }
-    
-    function closeModal() {
-        document.getElementById('app-modal').classList.add('hidden');
-        document.getElementById('app-modal').classList.remove('flex');
-    }
+    function closeModal() { document.getElementById('app-modal').classList.add('hidden'); document.getElementById('app-modal').classList.remove('flex'); }
 
     document.addEventListener('DOMContentLoaded', function() {
         initializeFirebase();
