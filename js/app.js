@@ -1,12 +1,13 @@
 // ==================================================================
-// MÓDULO PRINCIPAL - DENTISTA INTELIGENTE (VERSÃO FINAL - IA EM JANELA)
+// MÓDULO PRINCIPAL - DENTISTA INTELIGENTE (VERSÃO FINAL - 100% COMPLETO)
 // ==================================================================
 (function() {
     
-    // 1. CONFIGURAÇÕES E ESTADO
+    // 1. CONFIGURAÇÕES
     var config = window.AppConfig;
     var appId = config ? config.APP_ID : 'dentista-inteligente-app';
     
+    // ESTADO
     var db, auth;
     var currentUser = null;
     var currentView = 'dashboard';
@@ -14,7 +15,7 @@
     var selectedFile = null; 
     var currentChatRef = null;
     
-    // CACHES DE DADOS
+    // CACHES
     var allPatients = []; 
     var receivables = []; 
     var stockItems = []; 
@@ -227,11 +228,11 @@
             </div>`;
         updateKPIs();
         var brainRef = db.ref(getAdminPath(currentUser.uid, 'aiConfig/directives'));
-        brainRef.once('value', function(s) { if(s.exists()) document.getElementById('brain-input').value = s.val().promptDirectives; });
-        document.getElementById('save-brain-btn').onclick = function() {
-            brainRef.update({ promptDirectives: document.getElementById('brain-input').value });
-            alert("IA Atualizada!");
-        };
+        brainRef.once('value', function(s) { 
+            if(s.exists()) document.getElementById('brain-input').value = s.val().promptDirectives; 
+            else document.getElementById('brain-input').value = "Você é um dentista sênior. Seja técnico, objetivo e foque na segurança clínica.";
+        });
+        document.getElementById('save-brain-btn').onclick = function() { brainRef.update({ promptDirectives: document.getElementById('brain-input').value }); alert("IA Atualizada!"); };
     }
 
     // --- PACIENTES ---
@@ -312,7 +313,7 @@
 
     function deletePatient(id) { if(confirm("Excluir?")) db.ref(getAdminPath(currentUser.uid, 'patients') + '/' + id).remove(); }
 
-    // --- PRONTUÁRIO (CHAT E FINANCEIRO) ---
+    // --- PRONTUÁRIO (IA PRIVADA + CHAT) ---
     function openJournal(id) {
         if(currentChatRef) currentChatRef.off();
         var p = allPatients.find(function(x){ return x.id === id; });
@@ -331,7 +332,7 @@
                          <button onclick="document.getElementById('chat-file').click()" class="text-gray-500 hover:text-indigo-600 p-2"><i class='bx bx-paperclip text-xl'></i></button>
                          <input id="chat-msg" class="flex-grow bg-transparent outline-none text-sm" placeholder="Mensagem...">
                          <button onclick="sendChat('${id}')" class="bg-indigo-600 text-white p-2 rounded-lg"><i class='bx bxs-send'></i></button>
-                         <button onclick="askAI('${id}')" class="bg-purple-600 text-white p-2 rounded-lg" title="IA"><i class='bx bxs-magic-wand'></i></button>
+                         <button onclick="askAI('${id}')" class="bg-purple-600 text-white p-2 rounded-lg" title="Consultar IA (Privado)"><i class='bx bxs-magic-wand'></i></button>
                     </div>
                     <div id="file-preview" class="text-xs text-gray-500 mt-1 hidden pl-2"></div>
                 </div>
@@ -376,7 +377,8 @@
                 for(var key in data) {
                     var item = data[key];
                     var matsHTML = '';
-                    var matSnap = await db.ref(getReceivableMaterialsPath(key)).once('value');
+                    // Busca materiais usados (Referencia o caminho correto: receivables/id/materials)
+                    var matSnap = await db.ref(getFinancePath(currentUser.uid, 'receivable') + '/' + key + '/materials').once('value');
                     if(matSnap.exists()) {
                         var arr = [];
                         matSnap.forEach(function(m) { arr.push(`${m.val().quantityUsed} ${m.val().unit} ${m.val().name}`); });
@@ -406,60 +408,41 @@
         if(btn) btn.disabled = false;
     };
 
-    // --- NOVA FUNÇÃO askAI: Abre Modal com Sugestão (Não Envia) ---
+    // IA PRIVADA: COLOCA A RESPOSTA NO INPUT PARA O DENTISTA EDITAR
     window.askAI = async function(pid) {
         var p = allPatients.find(x => x.id === pid);
-        var btn = document.querySelector('button[title="IA"]');
-        var originalIcon = btn ? btn.innerHTML : '🤖';
+        var btn = document.querySelector('button[title="Consultar IA (Privado)"]');
+        var icon = btn ? btn.innerHTML : '🤖';
         
-        if(btn) {
-            btn.innerHTML = '<i class="bx bx-loader-alt bx-spin"></i>';
-            btn.disabled = true;
-        }
+        if(btn) { btn.innerHTML = '<i class="bx bx-loader-alt bx-spin"></i>'; btn.disabled = true; }
 
         try {
             var snaps = await db.ref(getJournalPath(pid)).limitToLast(5).once('value');
             var hist = "";
             snaps.forEach(s => hist += `${s.val().author}: ${s.val().text}\n`);
 
-            var prompt = `ATUE COMO: Dentista Sênior. PACIENTE: ${p.name}. HISTÓRICO: ${hist}\nTAREFA: Sugira uma resposta técnica ou conduta para o dentista.`;
-            var resp = await window.callGeminiAPI(prompt, "Analise.");
-            
-            // CRIA UM MODAL FLUTUANTE COM A SUGESTÃO
-            var aiModalHtml = `
-                <div class="text-sm text-gray-600 mb-2">A IA sugere a seguinte resposta/conduta:</div>
-                <textarea id="ai-suggestion-text" class="w-full border p-2 rounded h-32 bg-purple-50 text-sm mb-3">${resp}</textarea>
-                <div class="flex justify-end gap-2">
-                    <button onclick="document.getElementById('ai-modal-overlay').remove()" class="text-gray-500 px-3 py-1">Cancelar</button>
-                    <button onclick="useSuggestion('${resp.replace(/'/g, "\\'")}')" class="bg-purple-600 text-white px-3 py-1 rounded">Usar no Chat</button>
-                </div>
+            var prompt = `
+                ATUE COMO: Dentista Sênior Especialista.
+                PACIENTE: ${p.name}. TRATAMENTO: ${p.treatmentType}.
+                HISTÓRICO RECENTE: ${hist}
+                
+                TAREFA: Analise o caso e sugira a próxima conduta técnica ou resposta ao paciente. 
+                Seja direto, técnico e seguro.
             `;
             
-            // Injeta o modal na tela
-            var overlay = document.createElement('div');
-            overlay.id = "ai-modal-overlay";
-            overlay.className = "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[2000]";
-            overlay.innerHTML = `<div class="bg-white p-4 rounded-lg shadow-xl max-w-md w-full">${aiModalHtml}</div>`;
-            document.body.appendChild(overlay);
+            var resp = await window.callGeminiAPI(prompt, "Análise Clínica");
             
-            // Função interna para usar a sugestão
-            window.useSuggestion = function(text) {
-                var input = document.getElementById('chat-msg');
-                if(input) {
-                    input.value = text;
-                    input.focus();
-                }
-                document.getElementById('ai-modal-overlay').remove();
-            };
+            // AQUI ESTÁ A MÁGICA: NÃO ENVIA, APENAS PREENCHE O CAMPO
+            var input = document.getElementById('chat-msg');
+            if(input) {
+                input.value = "🤖 " + resp;
+                input.focus();
+            }
 
         } catch (e) {
-            console.error(e);
             alert("Erro IA: " + e.message);
         } finally {
-            if(btn) {
-                btn.innerHTML = originalIcon;
-                btn.disabled = false;
-            }
+            if(btn) { btn.innerHTML = icon; btn.disabled = false; }
         }
     };
 
@@ -474,12 +457,11 @@
                     <button class="p-3 text-gray-500 hover:text-indigo-600 whitespace-nowrap" onclick="renderExpensesView()">💸 Despesas</button>
                 </div>
                 <div id="fin-content-area"></div>
-                <div class="mt-8 text-center text-xs text-gray-400">Desenvolvido com 🤖, por <strong>thIAguinho Soluções</strong></div>
+                <footer class="text-center py-4 text-xs text-gray-400 mt-8">Desenvolvido com 🤖, por <strong>thIAguinho Soluções</strong></footer>
             </div>`;
         window.renderStockView = renderStockView;
         window.renderReceivablesView = renderReceivablesView;
         window.renderExpensesView = renderExpensesView;
-        
         window.deleteTx = function(type, id) { if(confirm("Excluir?")) db.ref(getFinancePath(currentUser.uid, type) + '/' + id).remove(); };
         window.deleteStock = function(id) { if(confirm("Remover?")) db.ref(getStockPath(currentUser.uid) + '/' + id).remove(); };
         window.settleTx = function(type, id) {
