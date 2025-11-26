@@ -1,13 +1,12 @@
 // ==================================================================
-// MÓDULO PRINCIPAL - DENTISTA INTELIGENTE (VERSÃO FINAL COM RODAPÉ)
+// MÓDULO PRINCIPAL - DENTISTA INTELIGENTE (VERSÃO FINAL - IA EM JANELA)
 // ==================================================================
 (function() {
     
-    // 1. CONFIGURAÇÕES
+    // 1. CONFIGURAÇÕES E ESTADO
     var config = window.AppConfig;
     var appId = config ? config.APP_ID : 'dentista-inteligente-app';
     
-    // ESTADO
     var db, auth;
     var currentUser = null;
     var currentView = 'dashboard';
@@ -15,27 +14,36 @@
     var selectedFile = null; 
     var currentChatRef = null;
     
-    // CACHES
+    // CACHES DE DADOS
     var allPatients = []; 
     var receivables = []; 
     var stockItems = []; 
     var expenses = []; 
     
+    // ==================================================================
     // 2. UTILITÁRIOS
+    // ==================================================================
+    
     function getAdminPath(uid, path) { return 'artifacts/' + appId + '/users/' + uid + '/' + path; }
     function getStockPath(uid) { return getAdminPath(uid, 'stock'); }
     function getFinancePath(uid, type) { return getAdminPath(uid, 'finance/' + type); }
     function getJournalPath(pid) { return 'artifacts/' + appId + '/patients/' + pid + '/journal'; }
-    function getRecMatPath(recId) { return getFinancePath(currentUser.uid, 'receivable') + '/' + recId + '/materials'; }
+    
+    function getReceivableMaterialsPath(recId) { return getFinancePath(currentUser.uid, 'receivable') + '/' + recId + '/materials'; }
     function getExpensePurchasedItemsPath(expId) { return getFinancePath(currentUser.uid, 'expenses') + '/' + expId + '/purchasedItems'; }
 
     function formatCurrency(value) { return 'R$ ' + parseFloat(value || 0).toFixed(2).replace('.', ','); }
+
     function formatDateTime(iso) {
         if(!iso) return '-';
         var d = new Date(iso);
         return isNaN(d) ? '-' : d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'});
     }
-    function formatFileName(name) { return name.length > 20 ? name.substring(0, 10) + '...' : name || ''; }
+    
+    function formatFileName(name) {
+        if (name && name.length > 20) return name.substring(0, 10) + '...' + name.substring(name.length - 7);
+        return name || '';
+    }
     
     function getPaymentBadge(method) {
         var icons = {
@@ -51,7 +59,10 @@
 
     function showNotification(message, type) { console.log('[' + (type || 'INFO') + '] ' + message); }
 
-    // 3. LOGIN
+    // ==================================================================
+    // 3. INICIALIZAÇÃO E LOGIN
+    // ==================================================================
+    
     function initializeFirebase() {
         if (!firebase.apps.length) firebase.initializeApp(config.firebaseConfig);
         db = firebase.database();
@@ -70,7 +81,8 @@
                         if (!profile && user.email === 'admin@ts.com') {
                             userRef.set({ email: user.email, role: 'dentist', registeredAt: new Date().toISOString() });
                         }
-                        loadInitialData(); showUI();
+                        loadInitialData(); 
+                        showUI();
                     } else {
                         alert("Acesso restrito a dentistas."); auth.signOut();
                     }
@@ -88,18 +100,21 @@
             updateKPIs();
             if(currentView === 'patients') renderPatientManager(document.getElementById('main-content'));
         });
+
         db.ref(getStockPath(currentUser.uid)).on('value', function(s) {
             stockItems = [];
             if(s.exists()) s.forEach(function(c) { var i = c.val(); i.id = c.key; stockItems.push(i); });
             updateKPIs();
             if(currentView === 'financials' && document.getElementById('stock-view')) renderStockView();
         });
+        
         db.ref(getFinancePath(currentUser.uid, 'receivable')).on('value', function(s) {
             receivables = [];
             if(s.exists()) s.forEach(function(c) { var r = c.val(); r.id = c.key; receivables.push(r); });
             updateKPIs();
             if(currentView === 'financials' && document.getElementById('receivables-view')) renderReceivablesView();
         });
+        
         db.ref(getFinancePath(currentUser.uid, 'expenses')).on('value', function(s) {
             expenses = [];
             if(s.exists()) s.forEach(function(c) { var e = c.val(); e.id = c.key; expenses.push(e); });
@@ -155,15 +170,20 @@
         } catch (error) { alert("Erro: " + error.message); }
     }
 
+    // ==================================================================
     // 4. NAVEGAÇÃO
+    // ==================================================================
+    
     function navigateTo(view) {
         if(!currentUser) return;
         currentView = view;
         var content = document.getElementById('main-content');
         content.innerHTML = '';
+        
         if (view === 'dashboard') renderDashboard(content);
         else if (view === 'patients') renderPatientManager(content);
         else if (view === 'financials') renderFinancialManager(content);
+        
         document.querySelectorAll('#nav-menu button').forEach(function(btn) {
             var active = btn.dataset.view === view;
             btn.className = active ? 'flex items-center p-3 rounded-xl w-full text-left bg-indigo-600 text-white shadow-lg' : 'flex items-center p-3 rounded-xl w-full text-left text-indigo-200 hover:bg-indigo-700 hover:text-white';
@@ -183,7 +203,11 @@
         });
     }
 
+    // ==================================================================
     // 5. TELAS
+    // ==================================================================
+
+    // --- DASHBOARD ---
     function renderDashboard(container) {
         container.innerHTML = `
             <div class="p-8 bg-white shadow-2xl rounded-2xl border border-indigo-100">
@@ -195,18 +219,22 @@
                     <div class="p-4 bg-red-100 rounded-lg"><p class="text-gray-600 text-sm uppercase font-bold">Pago</p><h3 class="text-2xl font-bold text-red-800" id="dash-exp">R$ 0,00</h3></div>
                 </div>
                 <div class="border p-4 rounded-xl bg-gray-50">
-                    <h3 class="font-bold text-indigo-800 mb-2">Instruções da IA</h3>
-                    <textarea id="brain-input" class="w-full p-2 border rounded text-sm" rows="3"></textarea>
-                    <button id="save-brain-btn" class="mt-2 bg-indigo-600 text-white px-4 py-1 rounded text-sm">Salvar</button>
+                    <h3 class="font-bold text-indigo-800 mb-2">Instruções da IA (Brain)</h3>
+                    <textarea id="brain-input" class="w-full p-2 border rounded text-sm" rows="3" placeholder="Ex: Focar em implantes..."></textarea>
+                    <button id="save-brain-btn" class="mt-2 bg-indigo-600 text-white px-4 py-1 rounded text-sm">Salvar Diretrizes</button>
                 </div>
-                <div class="mt-8 text-center text-xs text-gray-400">Desenvolvido com 🤖, por <strong>thIAguinho Soluções</strong></div>
+                <footer class="text-center py-4 text-xs text-gray-400 mt-8">Desenvolvido com 🤖, por <strong>thIAguinho Soluções</strong></footer>
             </div>`;
         updateKPIs();
         var brainRef = db.ref(getAdminPath(currentUser.uid, 'aiConfig/directives'));
         brainRef.once('value', function(s) { if(s.exists()) document.getElementById('brain-input').value = s.val().promptDirectives; });
-        document.getElementById('save-brain-btn').onclick = function() { brainRef.update({ promptDirectives: document.getElementById('brain-input').value }); alert("IA Atualizada!"); };
+        document.getElementById('save-brain-btn').onclick = function() {
+            brainRef.update({ promptDirectives: document.getElementById('brain-input').value });
+            alert("IA Atualizada!");
+        };
     }
 
+    // --- PACIENTES ---
     function renderPatientManager(container) {
         container.innerHTML = `
             <div class="p-8 bg-white shadow-lg rounded-2xl">
@@ -215,7 +243,7 @@
                     <button onclick="openPatientModal()" class="bg-indigo-600 text-white px-4 py-2 rounded shadow hover:bg-indigo-700">Novo Paciente</button>
                 </div>
                 <div class="overflow-x-auto"><table class="w-full text-left"><thead class="bg-gray-100 text-gray-600"><tr><th class="p-3">Nome</th><th class="p-3">Email/Tel</th><th class="p-3 text-right">Ações</th></tr></thead><tbody id="patient-list-body"></tbody></table></div>
-                <div class="mt-8 text-center text-xs text-gray-400">Desenvolvido com 🤖, por <strong>thIAguinho Soluções</strong></div>
+                <footer class="text-center py-4 text-xs text-gray-400 mt-auto">Desenvolvido com 🤖, por <strong>thIAguinho Soluções</strong></footer>
             </div>`;
         
         window.openPatientModal = openPatientModal;
@@ -252,7 +280,13 @@
                 <div><label class="font-bold">Email (Login)</label><input id="p-email" type="email" class="w-full border p-2 rounded" value="${isEdit ? p.email : ''}"></div>
                 <div><label class="font-bold">Telefone</label><input id="p-phone" class="w-full border p-2 rounded" value="${isEdit ? p.phone : ''}" placeholder="(00) 00000-0000"></div>
                 <div><label class="font-bold">CPF</label><input id="p-cpf" class="w-full border p-2 rounded" value="${isEdit ? p.cpf : ''}"></div>
-                <div><label class="font-bold">Tratamento</label><select id="p-type" class="w-full border p-2 rounded"><option ${isEdit && p.treatmentType==='Geral'?'selected':''}>Geral</option><option ${isEdit && p.treatmentType==='Ortodontia'?'selected':''}>Ortodontia</option><option ${isEdit && p.treatmentType==='Implante'?'selected':''}>Implante</option><option ${isEdit && p.treatmentType==='Estética'?'selected':''}>Estética</option></select></div>
+                <div><label class="font-bold">Tratamento</label>
+                <select id="p-type" class="w-full border p-2 rounded">
+                    <option ${isEdit && p.treatmentType==='Geral'?'selected':''}>Geral</option>
+                    <option ${isEdit && p.treatmentType==='Ortodontia'?'selected':''}>Ortodontia</option>
+                    <option ${isEdit && p.treatmentType==='Implante'?'selected':''}>Implante</option>
+                    <option ${isEdit && p.treatmentType==='Estética'?'selected':''}>Estética</option>
+                </select></div>
                 <div class="col-span-2"><label class="font-bold">Endereço</label><input id="p-address" class="w-full border p-2 rounded" value="${isEdit ? p.address : ''}"></div>
                 <div class="col-span-2"><label class="font-bold">Meta Clínica</label><textarea id="p-goal" class="w-full border p-2 rounded" rows="2">${isEdit ? p.treatmentGoal : ''}</textarea></div>
                 <button class="col-span-2 bg-green-600 text-white py-2 rounded font-bold">Salvar Ficha</button>
@@ -278,7 +312,7 @@
 
     function deletePatient(id) { if(confirm("Excluir?")) db.ref(getAdminPath(currentUser.uid, 'patients') + '/' + id).remove(); }
 
-    // --- PRONTUÁRIO ---
+    // --- PRONTUÁRIO (CHAT E FINANCEIRO) ---
     function openJournal(id) {
         if(currentChatRef) currentChatRef.off();
         var p = allPatients.find(function(x){ return x.id === id; });
@@ -297,7 +331,7 @@
                          <button onclick="document.getElementById('chat-file').click()" class="text-gray-500 hover:text-indigo-600 p-2"><i class='bx bx-paperclip text-xl'></i></button>
                          <input id="chat-msg" class="flex-grow bg-transparent outline-none text-sm" placeholder="Mensagem...">
                          <button onclick="sendChat('${id}')" class="bg-indigo-600 text-white p-2 rounded-lg"><i class='bx bxs-send'></i></button>
-                         <button onclick="askAI('${id}')" class="bg-purple-600 text-white p-2 rounded-lg" title="Consultar IA (Privado)"><i class='bx bxs-magic-wand'></i></button>
+                         <button onclick="askAI('${id}')" class="bg-purple-600 text-white p-2 rounded-lg" title="IA"><i class='bx bxs-magic-wand'></i></button>
                     </div>
                     <div id="file-preview" class="text-xs text-gray-500 mt-1 hidden pl-2"></div>
                 </div>
@@ -372,23 +406,61 @@
         if(btn) btn.disabled = false;
     };
 
+    // --- NOVA FUNÇÃO askAI: Abre Modal com Sugestão (Não Envia) ---
     window.askAI = async function(pid) {
         var p = allPatients.find(x => x.id === pid);
-        var btn = document.querySelector('button[title="Consultar IA (Privado)"]');
-        var icon = btn ? btn.innerHTML : '🤖';
-        if(btn) { btn.innerHTML = '<i class="bx bx-loader-alt bx-spin"></i>'; btn.disabled = true; }
+        var btn = document.querySelector('button[title="IA"]');
+        var originalIcon = btn ? btn.innerHTML : '🤖';
+        
+        if(btn) {
+            btn.innerHTML = '<i class="bx bx-loader-alt bx-spin"></i>';
+            btn.disabled = true;
+        }
+
         try {
             var snaps = await db.ref(getJournalPath(pid)).limitToLast(5).once('value');
             var hist = "";
             snaps.forEach(s => hist += `${s.val().author}: ${s.val().text}\n`);
-            var prompt = `ATUE COMO: Dentista Sênior. PACIENTE: ${p.name}. HISTÓRICO: ${hist}\nTAREFA: Sugira a próxima conduta técnica.`;
-            var resp = await window.callGeminiAPI(prompt, "Análise.");
+
+            var prompt = `ATUE COMO: Dentista Sênior. PACIENTE: ${p.name}. HISTÓRICO: ${hist}\nTAREFA: Sugira uma resposta técnica ou conduta para o dentista.`;
+            var resp = await window.callGeminiAPI(prompt, "Analise.");
             
-            // COLOCA NO INPUT
-            var input = document.getElementById('chat-msg');
-            if(input) { input.value = "🤖 " + resp; input.focus(); }
-        } catch (e) { alert("Erro IA: " + e.message); } 
-        finally { if(btn) { btn.innerHTML = icon; btn.disabled = false; } }
+            // CRIA UM MODAL FLUTUANTE COM A SUGESTÃO
+            var aiModalHtml = `
+                <div class="text-sm text-gray-600 mb-2">A IA sugere a seguinte resposta/conduta:</div>
+                <textarea id="ai-suggestion-text" class="w-full border p-2 rounded h-32 bg-purple-50 text-sm mb-3">${resp}</textarea>
+                <div class="flex justify-end gap-2">
+                    <button onclick="document.getElementById('ai-modal-overlay').remove()" class="text-gray-500 px-3 py-1">Cancelar</button>
+                    <button onclick="useSuggestion('${resp.replace(/'/g, "\\'")}')" class="bg-purple-600 text-white px-3 py-1 rounded">Usar no Chat</button>
+                </div>
+            `;
+            
+            // Injeta o modal na tela
+            var overlay = document.createElement('div');
+            overlay.id = "ai-modal-overlay";
+            overlay.className = "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[2000]";
+            overlay.innerHTML = `<div class="bg-white p-4 rounded-lg shadow-xl max-w-md w-full">${aiModalHtml}</div>`;
+            document.body.appendChild(overlay);
+            
+            // Função interna para usar a sugestão
+            window.useSuggestion = function(text) {
+                var input = document.getElementById('chat-msg');
+                if(input) {
+                    input.value = text;
+                    input.focus();
+                }
+                document.getElementById('ai-modal-overlay').remove();
+            };
+
+        } catch (e) {
+            console.error(e);
+            alert("Erro IA: " + e.message);
+        } finally {
+            if(btn) {
+                btn.innerHTML = originalIcon;
+                btn.disabled = false;
+            }
+        }
     };
 
     // --- FINANCEIRO ---
@@ -407,6 +479,7 @@
         window.renderStockView = renderStockView;
         window.renderReceivablesView = renderReceivablesView;
         window.renderExpensesView = renderExpensesView;
+        
         window.deleteTx = function(type, id) { if(confirm("Excluir?")) db.ref(getFinancePath(currentUser.uid, type) + '/' + id).remove(); };
         window.deleteStock = function(id) { if(confirm("Remover?")) db.ref(getStockPath(currentUser.uid) + '/' + id).remove(); };
         window.settleTx = function(type, id) {
@@ -439,7 +512,7 @@
                 var isPaid = r.status === 'Recebido';
                 var badge = isPaid ? `<span class="bg-green-100 text-green-800 text-xs px-2 rounded">Recebido</span>` : `<span class="bg-yellow-100 text-yellow-800 text-xs px-2 rounded">Aberto</span>`;
                 var action = isPaid ? '' : `<button onclick="settleTx('receivable', '${k}')" class="text-xs bg-green-500 text-white px-2 py-1 rounded ml-2"><i class='bx bx-check'></i></button>`;
-                list.innerHTML += `<div class="p-3 border rounded flex justify-between items-center bg-white hover:shadow-sm"><div><div class="font-bold text-indigo-900">${r.patientName} ${getPaymentBadge(r.paymentMethod)}</div><div class="text-xs text-gray-500">${r.description} - Venc: ${formatDateTime(r.dueDate).split(' ')[0]}</div></div><div class="text-right flex items-center gap-2">${badge}<div class="font-bold text-green-600 ml-2">${formatCurrency(r.amount)}</div><button onclick="manageMaterials('${k}')" class="text-xs bg-yellow-200 text-yellow-800 px-2 py-1 rounded" title="Baixa"><i class='bx bx-package'></i></button>${action}<button onclick="deleteTx('receivable', '${k}')" class="text-red-400"><i class='bx bx-trash'></i></button></div></div>`;
+                list.innerHTML += `<div class="p-3 border rounded flex justify-between items-center bg-white hover:shadow-sm transition"><div><div class="font-bold text-indigo-900">${r.patientName} ${getPaymentBadge(r.paymentMethod)}</div><div class="text-xs text-gray-500">${r.description} - Venc: ${formatDateTime(r.dueDate).split(' ')[0]}</div></div><div class="text-right flex items-center gap-2">${badge}<div class="font-bold text-green-600 ml-2">${formatCurrency(r.amount)}</div><button onclick="manageMaterials('${k}')" class="text-xs bg-yellow-200 text-yellow-800 px-2 py-1 rounded" title="Baixa"><i class='bx bx-package'></i></button>${action}<button onclick="deleteTx('receivable', '${k}')" class="text-red-400"><i class='bx bx-trash'></i></button></div></div>`;
             });
         } else { list.innerHTML = '<p class="text-center text-gray-400">Vazio.</p>'; }
     }
@@ -454,7 +527,7 @@
                 var isPaid = e.status === 'Pago';
                 var badge = isPaid ? `<span class="bg-green-100 text-green-800 text-xs px-2 rounded">Pago</span>` : `<span class="bg-red-100 text-red-800 text-xs px-2 rounded">Aberto</span>`;
                 var action = isPaid ? '' : `<button onclick="settleTx('expenses', '${k}')" class="text-xs bg-blue-500 text-white px-2 py-1 rounded ml-2"><i class='bx bx-check'></i></button>`;
-                list.innerHTML += `<div class="p-3 border rounded flex justify-between items-center bg-white hover:shadow-sm"><div><div class="font-bold text-gray-800">${e.supplier}</div><div class="text-xs text-gray-500">${e.description} - ${getPaymentBadge(e.paymentMethod)}</div></div><div class="text-right flex items-center gap-2">${badge}<div class="font-bold text-red-600 ml-2">${formatCurrency(e.amount)}</div><button onclick="managePurchaseItems('${k}')" class="text-xs bg-green-200 text-green-800 px-2 py-1 rounded" title="Entrada"><i class='bx bx-cart-add'></i></button>${action}<button onclick="deleteTx('expenses', '${k}')" class="text-red-400"><i class='bx bx-trash'></i></button></div></div>`;
+                list.innerHTML += `<div class="p-3 border rounded flex justify-between items-center bg-white hover:shadow-sm transition"><div><div class="font-bold text-gray-800">${e.supplier}</div><div class="text-xs text-gray-500">${e.description} - ${getPaymentBadge(e.paymentMethod)}</div></div><div class="text-right flex items-center gap-2">${badge}<div class="font-bold text-red-600 ml-2">${formatCurrency(e.amount)}</div><button onclick="managePurchaseItems('${k}')" class="text-xs bg-green-200 text-green-800 px-2 py-1 rounded" title="Entrada"><i class='bx bx-cart-add'></i></button>${action}<button onclick="deleteTx('expenses', '${k}')" class="text-red-400"><i class='bx bx-trash'></i></button></div></div>`;
             });
         } else { list.innerHTML = '<p class="text-center text-gray-400">Vazio.</p>'; }
     }
