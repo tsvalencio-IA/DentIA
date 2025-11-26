@@ -1,5 +1,5 @@
 // ==================================================================
-// MÓDULO PORTAL DO PACIENTE (VERSÃO FINAL COM IA ACOLHEDORA)
+// MÓDULO PORTAL DO PACIENTE (VERSÃO FINAL COM RODAPÉ)
 // ==================================================================
 (function() {
     var config = window.AppConfig;
@@ -82,10 +82,10 @@
         document.getElementById('p-treatment').textContent = myProfile.treatmentType;
         document.getElementById('p-status').textContent = 'Ativo';
         
-        // Adiciona o rodapé dinamicamente se não existir
+        // INJEÇÃO DO RODAPÉ
         if(!document.querySelector('footer')) {
              var footer = document.createElement('footer');
-             footer.className = 'text-center py-4 text-xs text-gray-400 bg-gray-50 mt-auto w-full';
+             footer.className = 'text-center py-4 text-xs text-gray-400 bg-white mt-auto w-full border-t border-gray-100';
              footer.innerHTML = 'Desenvolvido com 🤖, por <strong>thIAguinho Soluções</strong>';
              document.getElementById('patient-app').appendChild(footer);
         }
@@ -164,7 +164,13 @@
         document.getElementById('img-preview-area').classList.add('hidden');
 
         if (window.callGeminiAPI && text) {
-            var context = `Você é a recepcionista da clínica. Paciente: ${myProfile.name}. Responda com empatia, curto e acolhedor. Não dê diagnósticos. Mensagem do paciente: "${text}"`;
+            // PROMPT MELHORADO (SECRETÁRIA)
+            var context = `
+                ATUE COMO: Recepcionista Virtual da Clínica.
+                PACIENTE: ${myProfile.name}.
+                INSTRUÇÃO: Responda de forma curta, educada e acolhedora. Não dê diagnósticos médicos.
+                MENSAGEM DO PACIENTE: "${text}"
+            `;
             var reply = await window.callGeminiAPI(context, text);
             db.ref('artifacts/' + appId + '/patients/' + myProfile.id + '/journal').push({
                 text: reply, author: 'IA (Auto)', timestamp: new Date().toISOString()
