@@ -1,5 +1,5 @@
 // ==================================================================
-// MÓDULO PORTAL DO PACIENTE (CORRIGIDO)
+// MÓDULO PORTAL DO PACIENTE (VERSÃO FINAL COM IA ACOLHEDORA)
 // ==================================================================
 (function() {
     var config = window.AppConfig;
@@ -81,6 +81,15 @@
         document.getElementById('p-name').textContent = myProfile.name;
         document.getElementById('p-treatment').textContent = myProfile.treatmentType;
         document.getElementById('p-status').textContent = 'Ativo';
+        
+        // Adiciona o rodapé dinamicamente se não existir
+        if(!document.querySelector('footer')) {
+             var footer = document.createElement('footer');
+             footer.className = 'text-center py-4 text-xs text-gray-400 bg-gray-50 mt-auto w-full';
+             footer.innerHTML = 'Desenvolvido com 🤖, por <strong>thIAguinho Soluções</strong>';
+             document.getElementById('patient-app').appendChild(footer);
+        }
+
         loadTimeline();
         loadFinance();
     }
@@ -90,7 +99,7 @@
         var journalRef = db.ref('artifacts/' + appId + '/patients/' + myProfile.id + '/journal');
         
         journalRef.on('value', function(snap) {
-            timelineDiv.innerHTML = ''; // LIMPEZA CRÍTICA
+            timelineDiv.innerHTML = '';
             if (snap.exists()) {
                 snap.forEach(function(c) {
                     var msg = c.val();
@@ -155,7 +164,8 @@
         document.getElementById('img-preview-area').classList.add('hidden');
 
         if (window.callGeminiAPI && text) {
-            var reply = await window.callGeminiAPI(`Paciente ${myProfile.name} disse: "${text}". Responda curto.`, text);
+            var context = `Você é a recepcionista da clínica. Paciente: ${myProfile.name}. Responda com empatia, curto e acolhedor. Não dê diagnósticos. Mensagem do paciente: "${text}"`;
+            var reply = await window.callGeminiAPI(context, text);
             db.ref('artifacts/' + appId + '/patients/' + myProfile.id + '/journal').push({
                 text: reply, author: 'IA (Auto)', timestamp: new Date().toISOString()
             });
