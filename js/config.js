@@ -20,7 +20,7 @@
     // 3. CONFIGURAÇÃO GOOGLE GEMINI API
     // Usamos o 'gemini-1.5-flash' como preferencial.
     // Se der erro, o ai.js trocará sozinho para o 'gemini-pro'.
-    const GEMINI_MODEL = "gemini-1.5-flash"; 
+    const GEMINI_MODEL = "gemini-2.5-flash-preview-09-2025"; 
     
     // SUA CHAVE API (Mantenha a que você criou no Google AI Studio)
     const API_KEY = "AIzaSyAFAfXgdbMeXdGf42zWeYbNbBsi0LrvpvU"; 
