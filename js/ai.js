@@ -1,49 +1,71 @@
 // =====================================================================
-// 🧠 MÓDULO IA: js/ai.js (VERSÃO FINAL COMPATÍVEL)
+// 🧠 MÓDULO IA: js/ai.js (COM SISTEMA DE RESGATE AUTOMÁTICO)
 // =====================================================================
 (function() {
-    var config = window.AppConfig || {};
-    var GEMINI_MODEL = config.GEMINI_MODEL || "gemini-1.5-flash"; 
-    var API_KEY = config.API_KEY;
+    const config = window.AppConfig || {};
+    const API_KEY = config.API_KEY;
 
-    async function callGeminiAPI(systemPrompt, userMessage) {
-        if (!API_KEY || API_KEY.includes("SUA_CHAVE") || API_KEY.length < 10) {
-            console.error("ERRO GEMINI: API Key inválida.");
-            return "Erro de Configuração: Chave API não encontrada.";
-        }
+    // Lista de modelos para tentar em ordem (se um falhar, tenta o próximo)
+    // 1. Flash (Rápido) -> 2. Pro 1.5 (Inteligente) -> 3. Pro 1.0 (Antigo/Compatível)
+    const MODELS_TO_TRY = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
 
-        var url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${API_KEY}`;
+    async function tryGenerate(modelName, systemPrompt, userMessage) {
+        console.log(`🤖 Tentando conectar com modelo: ${modelName}...`);
         
-        // TRUQUE: Unifica System Prompt + User Message
-        var finalPrompt = `CONTEXTO DO SISTEMA:\n${systemPrompt}\n\n---\nMENSAGEM DO USUÁRIO:\n${userMessage}`.trim();
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${API_KEY}`;
+        
+        const finalPrompt = `
+CONTEXTO DO SISTEMA:
+${systemPrompt}
+---
+MENSAGEM DO USUÁRIO:
+${userMessage}
+        `.trim();
 
-        var payload = {
+        const payload = {
             contents: [{ role: "user", parts: [{ text: finalPrompt }] }]
         };
 
-        try {
-            var response = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
 
-            if (!response.ok) {
-                var err = await response.json();
-                throw new Error(err.error ? err.error.message : "Erro desconhecido na API");
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error?.message || response.statusText);
+        }
+
+        const data = await response.json();
+        
+        if (data.candidates && data.candidates.length > 0 && data.candidates[0].content) {
+            return data.candidates[0].content.parts[0].text;
+        } else {
+            throw new Error("Resposta vazia da IA.");
+        }
+    }
+
+    async function callGeminiAPI(systemPrompt, userMessage) {
+        if (!API_KEY || API_KEY.length < 10) {
+            return "Erro: Chave API inválida ou não configurada.";
+        }
+
+        // Tenta os modelos em sequência até um funcionar
+        for (let i = 0; i < MODELS_TO_TRY.length; i++) {
+            const model = MODELS_TO_TRY[i];
+            try {
+                const result = await tryGenerate(model, systemPrompt, userMessage);
+                return result; // Se funcionou, retorna e sai da função
+            } catch (error) {
+                console.warn(`⚠️ Falha no modelo ${model}:`, error.message);
+                
+                // Se foi o último modelo e falhou, retorna erro final
+                if (i === MODELS_TO_TRY.length - 1) {
+                    return `Erro fatal na IA: Não foi possível conectar com nenhum modelo. Verifique se sua Chave API permite o domínio atual (Referrers). Detalhe: ${error.message}`;
+                }
+                // Se não foi o último, o loop continua e tenta o próximo modelo
             }
-
-            var data = await response.json();
-            
-            if (data.candidates && data.candidates.length > 0 && data.candidates[0].content) {
-                return data.candidates[0].content.parts[0].text;
-            } else {
-                return "A IA não conseguiu gerar uma resposta válida.";
-            }
-
-        } catch (error) {
-            console.error("Erro IA:", error);
-            return `Erro técnico na IA: ${error.message}`;
         }
     }
 
